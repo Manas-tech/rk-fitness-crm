@@ -1,0 +1,360 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("OWNER") // OWNER, MANAGER, STAFF
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  auditLogs    AuditLog[]
+}
+
+model GymSettings {
+  id                     String   @id @default("default-settings")
+  gymName                String   @default("IronPulse Fitness & Athletic Club")
+  logoUrl                String?
+  address                String   @default("104, Elite Avenue, Linking Road, Bandra West, Mumbai, Maharashtra 400050")
+  phone                  String   @default("+91 98201 23456")
+  email                  String   @default("contact@ironpulsefitness.com")
+  timezone               String   @default("Asia/Kolkata")
+  currency               String   @default("INR")
+  currencySymbol         String   @default("₹")
+  fyStartMonth           Int      @default(4) // 4 = April for India
+  defaultTrainerShare    Float    @default(70.0) // 70%
+  defaultGymShare        Float    @default(30.0) // 30%
+  attendancePaidLeave    Boolean  @default(true)
+  attendanceHalfDayFactor Float   @default(0.5)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model MembershipPlan {
+  id           String             @id @default(cuid())
+  name         String             @unique // Monthly, Quarterly, Half-Yearly, Yearly, Custom
+  durationDays Int                @default(30)
+  defaultPrice Float              @default(2500)
+  description  String?
+  isActive     Boolean            @default(true)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  records      MembershipRecord[]
+}
+
+model Member {
+  id                 String             @id @default(cuid())
+  memberCode         String             @unique // MEM-1001
+  fullName           String
+  phone              String
+  email              String?
+  gender             String?            // Male, Female, Other
+  dateOfBirth        DateTime?
+  address            String?
+  emergencyContact   String?
+  status             String             @default("ACTIVE") // ACTIVE, EXPIRED, DEACTIVATED
+  deactivationReason String?
+  assignedTrainerId  String?
+  assignedTrainer    Staff?             @relation("TrainerMembers", fields: [assignedTrainerId], references: [id])
+  internalNotes      String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  membershipRecords  MembershipRecord[]
+  ptContracts        PtContract[]
+  transactions       Transaction[]
+  enquiries          WebsiteEnquiry[]   @relation("ConvertedMember")
+
+  @@index([phone])
+  @@index([status])
+}
+
+model MembershipRecord {
+  id                 String          @id @default(cuid())
+  memberId           String
+  member             Member          @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  planId             String
+  plan               MembershipPlan  @relation(fields: [planId], references: [id])
+  planName           String
+  startDate          DateTime
+  endDate            DateTime
+  price              Float
+  discount           Float           @default(0)
+  finalAmount        Float
+  amountPaid         Float           @default(0)
+  outstandingBalance Float           @default(0)
+  status             String          @default("ACTIVE") // ACTIVE, EXPIRED, CANCELLED
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  transactions       Transaction[]
+
+  @@index([memberId])
+  @@index([status])
+  @@index([endDate])
+}
+
+model Staff {
+  id                   String             @id @default(cuid())
+  staffCode            String             @unique // STF-101
+  fullName             String
+  phone                String
+  email                String?
+  role                 String             @default("PERSONAL_TRAINER") // PERSONAL_TRAINER, GYM_TRAINER, RECEPTIONIST, MANAGER, OTHER
+  joiningDate          DateTime           @default(now())
+  employmentStatus     String             @default("ACTIVE") // ACTIVE, INACTIVE
+  salaryModel          String             @default("ATTENDANCE_BASED") // FIXED_MONTHLY, ATTENDANCE_BASED, HYBRID, COMMISSION_ONLY
+  baseSalary           Float              @default(15000)
+  scheduledWorkingDays Int                @default(30)
+  expectedWorkingHours Float?             @default(8.0)
+  bankDetails          String?            // UPI or Account details (protected)
+  notes                String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  assignedMembers      Member[]           @relation("TrainerMembers")
+  ptContracts          PtContract[]       @relation("TrainerPtContracts")
+  commissionRecords    PtCommissionRecord[]
+  attendanceRecords    AttendanceRecord[]
+  payrollRecords       PayrollRecord[]
+  assignedEnquiries    WebsiteEnquiry[]   @relation("StaffEnquiries")
+
+  @@index([role])
+  @@index([employmentStatus])
+}
+
+model PtContract {
+  id                  String               @id @default(cuid())
+  contractCode        String               @unique // PT-1001
+  memberId            String
+  member              Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  trainerId           String
+  trainer             Staff                @relation("TrainerPtContracts", fields: [trainerId], references: [id])
+  goalCategory        String               @default("WEIGHT_LOSS") // WEIGHT_LOSS, MUSCLE_GAIN, STRENGTH, GENERAL_FITNESS, BODY_TRANSFORMATION, ENDURANCE, REHAB, CUSTOM
+  goalDescription     String?
+  packageBasis        String               @default("MONTHLY") // MONTHLY, FIXED_DURATION, PER_SESSION, CUSTOM
+  totalSessions       Int?                 @default(12)
+  completedSessions   Int                  @default(0)
+  startDate           DateTime
+  endDate             DateTime
+  contractAmount      Float
+  discount            Float                @default(0)
+  finalPayable        Float
+  amountPaid          Float                @default(0)
+  outstandingBalance  Float                @default(0)
+  trainerSharePercent Float                @default(70.0)
+  gymSharePercent     Float                @default(30.0)
+  status              String               @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED
+  notes               String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  transactions        Transaction[]
+  commissionRecords   PtCommissionRecord[]
+
+  @@index([memberId])
+  @@index([trainerId])
+  @@index([status])
+}
+
+model PtCommissionRecord {
+  id                    String      @id @default(cuid())
+  ptContractId          String
+  ptContract            PtContract  @relation(fields: [ptContractId], references: [id], onDelete: Cascade)
+  transactionId         String
+  transaction           Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  trainerId             String
+  trainer               Staff       @relation(fields: [trainerId], references: [id])
+  paymentAmountReceived Float
+  eligibleRevenue       Float
+  trainerSharePercent   Float       @default(70.0)
+  gymSharePercent       Float       @default(30.0)
+  trainerShareEarned    Float
+  gymShareRetained      Float
+  settlementStatus      String      @default("PENDING") // PENDING, SETTLED_IN_PAYROLL, PAID_DIRECTLY
+  payrollRecordId       String?
+  payrollRecord         PayrollRecord? @relation(fields: [payrollRecordId], references: [id])
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  @@index([trainerId])
+  @@index([settlementStatus])
+  @@index([payrollRecordId])
+}
+
+model Transaction {
+  id                  String             @id @default(cuid())
+  transactionCode     String             @unique // TXN-10001
+  date                DateTime           @default(now())
+  memberId            String?
+  member              Member?            @relation(fields: [memberId], references: [id])
+  membershipRecordId  String?
+  membershipRecord    MembershipRecord?  @relation(fields: [membershipRecordId], references: [id])
+  ptContractId        String?
+  ptContract          PtContract?        @relation(fields: [ptContractId], references: [id])
+  payrollRecordId     String?
+  payrollRecord       PayrollRecord?     @relation(fields: [payrollRecordId], references: [id])
+  expenseId           String?
+  expense             Expense?           @relation(fields: [expenseId], references: [id])
+  type                String             @default("COLLECTION") // COLLECTION, EXPENSE, PAYOUT, REFUND, ADJUSTMENT
+  category            String             @default("MEMBERSHIP") // MEMBERSHIP, PT, OTHER_SALES, SALARY, COMMISSION_PAYOUT, EXPENSE
+  amount              Float
+  paymentMethod       String             @default("UPI") // CASH, UPI, CARD, BANK_TRANSFER, OTHER
+  status              String             @default("COMPLETED") // COMPLETED, REFUNDED, REVERSED
+  referenceNumber     String?
+  description         String
+  recordedById        String?
+  notes               String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  ptCommissions       PtCommissionRecord[]
+
+  @@index([date])
+  @@index([type])
+  @@index([category])
+  @@index([memberId])
+}
+
+model AttendanceRecord {
+  id              String   @id @default(cuid())
+  staffId         String
+  staff           Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  date            String   // YYYY-MM-DD
+  status          String   @default("PRESENT") // PRESENT, ABSENT, HALF_DAY, LEAVE, HOLIDAY, WEEKLY_OFF
+  attendanceUnits Float    @default(1.0) // 1.0 for PRESENT, 0.5 for HALF_DAY, 1.0 or 0.0 for LEAVE/WEEKLY_OFF
+  checkInTime     String?
+  checkOutTime    String?
+  workingHours    Float?
+  notes           String?
+  markedById      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([staffId, date])
+  @@index([date])
+  @@index([staffId])
+}
+
+model PayrollRecord {
+  id                    String               @id @default(cuid())
+  month                 Int                  // 1 - 12
+  year                  Int                  // 2026
+  staffId               String
+  staff                 Staff                @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  status                String               @default("DRAFT") // DRAFT, FINALIZED, PAID, PARTIALLY_PAID
+  totalCalendarDays     Int                  @default(30)
+  scheduledWorkingDays  Int                  @default(30)
+  presentDays           Int                  @default(0)
+  halfDays              Int                  @default(0)
+  paidLeaveDays         Int                  @default(0)
+  unpaidLeaveDays       Int                  @default(0)
+  absentDays            Int                  @default(0)
+  attendanceUnitsEarned Float                @default(0)
+  dailyRate             Float                @default(0)
+  baseSalary            Float                @default(0)
+  attendanceEarnings    Float                @default(0)
+  ptCommissionEarned    Float                @default(0)
+  adjustments           Float                @default(0)
+  deductions            Float                @default(0)
+  grossPayable          Float                @default(0)
+  netSalaryPayable      Float                @default(0)
+  amountPaid            Float                @default(0)
+  remainingBalance      Float                @default(0)
+  finalizedAt           DateTime?
+  finalizedById         String?
+  notes                 String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  commissionItems       PtCommissionRecord[]
+  payoutTransactions    Transaction[]
+
+  @@unique([staffId, month, year])
+  @@index([month, year])
+  @@index([status])
+}
+
+model Expense {
+  id              String        @id @default(cuid())
+  expenseCode     String        @unique // EXP-1001
+  title           String
+  category        String        @default("OTHER") // RENT, ELECTRICITY, SALARY, EQUIPMENT, MAINTENANCE, MARKETING, SUPPLEMENTS, OTHER
+  amount          Float
+  expenseDate     DateTime      @default(now())
+  paymentDate     DateTime?
+  paymentStatus   String        @default("PAID") // PAID, UNPAID, PARTIALLY_PAID
+  amountPaid      Float         @default(0)
+  paymentMethod   String        @default("UPI") // CASH, UPI, CARD, BANK_TRANSFER, OTHER
+  vendor          String?
+  referenceNumber String?
+  notes           String?
+  attachmentUrl   String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  transactions    Transaction[]
+
+  @@index([expenseDate])
+  @@index([category])
+  @@index([paymentStatus])
+}
+
+model WebsiteEnquiry {
+  id                 String          @id @default(cuid())
+  leadCode           String          @unique // LEAD-1001
+  fullName           String
+  phone              String
+  email              String?
+  interestedService  String          @default("GYM_MEMBERSHIP") // GYM_MEMBERSHIP, PERSONAL_TRAINING, CROSSFIT, YOGA, GENERAL_ENQUIRY
+  preferredPlanName  String?
+  message            String?
+  source             String          @default("WEBSITE") // WEBSITE, WALK_IN, REFERRAL, SOCIAL_MEDIA, PHONE
+  status             String          @default("NEW") // NEW, CONTACTED, FOLLOW_UP_REQUIRED, TRIAL_SCHEDULED, CONVERTED, LOST
+  assignedStaffId    String?
+  assignedStaff      Staff?          @relation("StaffEnquiries", fields: [assignedStaffId], references: [id])
+  nextFollowUpDate   DateTime?
+  notes              String?
+  convertedMemberId  String?
+  convertedMember    Member?         @relation("ConvertedMember", fields: [convertedMemberId], references: [id])
+  convertedAt        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  activities         LeadActivity[]
+
+  @@index([status])
+  @@index([phone])
+}
+
+model LeadActivity {
+  id             String         @id @default(cuid())
+  enquiryId      String
+  enquiry        WebsiteEnquiry @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  type           String         @default("NOTE") // NOTE, CALL, STATUS_CHANGE, FOLLOW_UP_SET, CONVERTED
+  description    String
+  performedById  String?
+  createdAt      DateTime       @default(now())
+
+  @@index([enquiryId])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  action         String   // CREATE, UPDATE, DELETE, FINALIZE, REVERSE
+  entityType     String   // MEMBER, PAYMENT, PT, PAYROLL, ATTENDANCE, EXPENSE, LEAD
+  entityId       String
+  details        String?  // JSON string
+  performedById  String?
+  user           User?    @relation(fields: [performedById], references: [id])
+  createdAt      DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
